@@ -19,8 +19,10 @@ object Executor {
       case x: List_ => list(user, x)
       case x: StartPoll => startPoll(user, x)
       case x: StopPoll => stopPoll(user, x)
+      case x: Result => result(user, x)
       case x: Begin => begin(user, x)
       case x: End => end(user, x)
+      case x: View => view(user, x)
       case x: AddQuestion => addQuestion(user, x)
       case x: DeleteQuestion => deleteQuestion(user, x)
       case x: Answer => answer(user, x)
@@ -75,11 +77,18 @@ object Executor {
             case Some(_) => s"Poll with (${command.id}) cannot be stop."
             case None =>
               memoryPoll = memoryPoll updated(command.id, poll.copy(stopTime = Option(LocalDateTime.now)))
-              s"Poll with (${command.id}) was stopped."
+              s"Poll with (${command.id}) id was stopped."
           }
         }
       case None => s"Poll with (${command.id}) id not found."
     }
+  }
+
+  def result(user: User, command: Result): String = {
+    memoryPoll.get(command.id).map(poll => {
+      if (Poll.isStarted(poll, LocalDateTime.now()) && !poll.visibility) "You cannot get information now"
+      else BotAnswer.viewResult(poll)
+    }).getOrElse( s"Poll with (${command.id}) id not found.")
   }
 
   //Command with context
@@ -89,7 +98,7 @@ object Executor {
     else {
       memoryPoll.get(command.id) match {
         case Some(poll) =>
-          if (!Poll.isStopped(poll, LocalDateTime.now()) && poll.owner == user) {
+          if (!Poll.isStopped(poll, LocalDateTime.now())) {
             currentPoll += (user -> command.id)
             s"You start work with poll with (${command.id}) id."
           } else s"You cannot start work with poll with (${command.id}) id."
@@ -108,40 +117,43 @@ object Executor {
   }
 
   def view(user: User, command: View): String = {
-    currentPoll.get(user) match {
-      case None => "You are not in context."
-      case Some(pollId) =>
-        "Poll"
-    }
+    currentPoll.get(user).map(pollId => {
+      memoryPoll.get(pollId).map(poll => {
+        BotAnswer.viewPoll(poll)
+    }).getOrElse(s"Poll with ($pollId) id not found.")
+      }).getOrElse("You are not in context.")
   }
 
   def addQuestion(user: User, command: AddQuestion): String = {
     currentPoll.get(user).map(pollId => {
       memoryPoll.get(pollId).map(poll => {
-        if (Poll.isStopped(poll, LocalDateTime.now())) "Poll already stopped."
-        else if (Poll.isStarted(poll, LocalDateTime.now())) "Poll already start."
-        else command.qType match {
-          case Open =>
-            if (command.variant.nonEmpty) "Some options in question. Expected 0."
-            else {
-              memoryPoll = memoryPoll updated(pollId, poll.copy(question = poll.question :+ OpenQuestion(command.question)))
-              s"Question №${poll.question.length} was added."
-            }
-          case Choice =>
-            if (command.variant.isEmpty || command.variant.length < 2) "Few options in question. Expected more then 1."
-            else {
-              memoryPoll = memoryPoll updated(pollId,
-                poll.copy(question = poll.question :+ ChoiceQuestion(command.question, options = command.variant)))
-              s"Question №${poll.question.length} was added."
-            }
-          case Multi =>
-            if (command.variant.isEmpty || command.variant.length < 2) "Few options in question. Expected more than 1."
-            else {
-              memoryPoll = memoryPoll updated(pollId,
-                poll.copy(question = poll.question :+ MultiQuestion(command.question, options = command.variant)))
-              s"Question №${poll.question.length} was added."
-            }
+        if (poll.owner == user) {
+          if (Poll.isStopped(poll, LocalDateTime.now())) "Poll already stopped."
+          else if (Poll.isStarted(poll, LocalDateTime.now())) "Poll already start."
+          else command.qType match {
+            case Open =>
+              if (command.variant.nonEmpty) "Some options in question. Expected 0."
+              else {
+                memoryPoll = memoryPoll updated(pollId, poll.copy(question = poll.question :+ OpenQuestion(command.question)))
+                s"Question №${poll.question.length} was added."
+              }
+            case Choice =>
+              if (command.variant.isEmpty || command.variant.length < 2) "Few options in question. Expected more then 1."
+              else {
+                memoryPoll = memoryPoll updated(pollId,
+                  poll.copy(question = poll.question :+ ChoiceQuestion(command.question, options = command.variant)))
+                s"Question №${poll.question.length} was added."
+              }
+            case Multi =>
+              if (command.variant.isEmpty || command.variant.length < 2) "Few options in question. Expected more than 1."
+              else {
+                memoryPoll = memoryPoll updated(pollId,
+                  poll.copy(question = poll.question :+ MultiQuestion(command.question, options = command.variant)))
+                s"Question №${poll.question.length} was added."
+              }
+          }
         }
+        else "You cannot add question in this poll"
       }).getOrElse(s"Poll with ($pollId) id not found.")
     }).getOrElse("You are not in context.")
   }
@@ -149,15 +161,18 @@ object Executor {
   def deleteQuestion(user: User, commands: DeleteQuestion): String = {
     currentPoll.get(user).map(pollId => {
       memoryPoll.get(pollId).map(poll => {
-        if (poll.question.lengthCompare(commands.id) <= 0) s"Question with ${commands.id} number does not exist"
-        else {
-          if (Poll.isStopped(poll, LocalDateTime.now())) "Poll already stopped."
-          else if (Poll.isStarted(poll, LocalDateTime.now())) "Poll already start."
+        if (poll.owner == user) {
+          if (poll.question.lengthCompare(commands.id) <= 0) s"Question with ${commands.id} number does not exist"
           else {
-            memoryPoll = memoryPoll updated(pollId, poll.copy(question = poll.question.patch(commands.id, Nil, 1)))
-            s"Question with ${commands.id} number deleted."
+            if (Poll.isStopped(poll, LocalDateTime.now())) "Poll already stopped."
+            else if (Poll.isStarted(poll, LocalDateTime.now())) "Poll already start."
+            else {
+              memoryPoll = memoryPoll updated(pollId, poll.copy(question = poll.question.patch(commands.id, Nil, 1)))
+              s"Question with ${commands.id} number deleted."
+            }
           }
         }
+        else "You cannot delete question in this poll"
       }).getOrElse(s"Poll with ($pollId) id not found.")
     }).getOrElse("You are not in context.")
   }

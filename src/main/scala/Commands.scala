@@ -8,7 +8,7 @@ package object Commands {
 
   case class CreatePoll(name: String,
                         anonymity: Boolean = true,
-                        visibility: Boolean = false,
+                        visibility: Boolean = true,
                         startTime: Option[LocalDateTime] = None,
                         stopTime: Option[LocalDateTime] = None) extends Command
   case class List_() extends Command
